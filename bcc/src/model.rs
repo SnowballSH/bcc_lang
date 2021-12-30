@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-
-pub type Id = usize;
-
 #[derive(Debug, Clone, Copy)]
 pub struct Cells {
     pub position: usize,
@@ -12,36 +8,40 @@ impl Cells {
     pub fn position_at(&self, index: usize) -> usize {
         self.position + index
     }
+
+    pub fn last_position(&self) -> usize {
+        self.position_at(self.position + self.size - 1)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct MemoryModel {
-    memory: BTreeMap<Id, Cells>,
     pub size: usize,
+}
+
+impl Default for MemoryModel {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MemoryModel {
     pub fn new() -> Self {
         MemoryModel {
-            memory: BTreeMap::new(),
             size: 0,
         }
     }
 
-    pub fn allocate(&mut self, size: usize) -> usize {
+    pub fn allocate(&mut self, size: usize) -> Cells {
         let position = self.size;
         self.size += size;
-        position
-    }
-
-    pub fn store_value(&mut self, id: Id, size: usize) {
-        let position = self.allocate(size);
-
-        let cells = Cells {
+        Cells {
             position,
             size,
-        };
+        }
+    }
 
-        self.memory.insert(id, cells);
+    pub fn free(&mut self, size: usize) {
+        self.size -= size;
     }
 }
