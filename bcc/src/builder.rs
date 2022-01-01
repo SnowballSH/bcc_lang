@@ -122,6 +122,15 @@ impl Builder {
         self
     }
 
+    pub fn adjust(&mut self, amount: i16) -> &mut Self {
+        if amount > 0 {
+            self.add(amount as u8);
+        } else {
+            self.sub(-amount as u8);
+        }
+        self
+    }
+
     /*
         Algorithms
         https://esolangs.org/wiki/Brainfuck_algorithms
@@ -174,10 +183,16 @@ impl Builder {
     }
 
     pub fn just_print(&mut self, string: &str) -> &mut Self {
-        let cells = self.write_bytes_unchecked(string.as_bytes());
-        self.print_cells(cells);
-        self.goto(cells.last_position());
-        self.free_last_n(cells.size);
+        let c = self.n_cells(1);
+        self.goto(c.position);
+        let mut ascii = vec![0i16];
+        for c in string.chars() {
+            ascii.push(c as i16);
+        }
+        for (i, ch) in ascii.iter().enumerate().skip(1) {
+            self.adjust(ch - ascii[i - 1]).print_byte();
+        }
+        self.free_last_n(1);
         self
     }
 
