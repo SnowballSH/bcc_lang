@@ -1,17 +1,40 @@
+use std::collections::BTreeMap;
+
 use crate::model::{Cells, MemoryModel};
 use crate::optimizer::optimize;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Builder {
     pub(crate) model: MemoryModel,
     pub cursor: usize,
     pub result: Vec<u8>,
+    pub constants: BTreeMap<u8, usize>,
 }
 
 impl Builder {
+    pub fn new() -> Self {
+        let mut s = Self {
+            model: MemoryModel::new(),
+            cursor: 0,
+            result: Vec::with_capacity(64),
+            constants: BTreeMap::new(),
+        };
+
+        s.new_constant(0);
+
+        s
+    }
+
     /*
         Allocating
      */
+
+    pub fn new_constant(&mut self, value: u8) -> &mut Self {
+        let cell = self.n_cells(1);
+        self.goto(cell.position).add(value);
+        self.constants.insert(value, cell.position);
+        self
+    }
 
     pub fn n_cells(&mut self, size: usize) -> Cells {
         let cell = self.model.allocate(size);
@@ -132,6 +155,34 @@ impl Builder {
     }
 
     /*
+        Arithmetic Algorithms
+     */
+
+    /// Consume current cell and add to pos
+    pub fn add_to(&mut self, pos: usize) -> &mut Self {
+        let start = self.cursor;
+        self
+            .start_while()
+            .goto(pos)
+            .add(1)
+            .goto(start)
+            .sub(1)
+            .end_while_unchecked()
+    }
+
+    /// Consume current cell and sub from pos
+    pub fn sub_from(&mut self, pos: usize) -> &mut Self {
+        let start = self.cursor;
+        self
+            .start_while()
+            .goto(pos)
+            .sub(1)
+            .goto(start)
+            .sub(1)
+            .end_while_unchecked()
+    }
+
+    /*
         Algorithms
         https://esolangs.org/wiki/Brainfuck_algorithms
      */
@@ -163,11 +214,37 @@ impl Builder {
         self
     }
 
+    pub fn start_if(&mut self) -> &mut Self {
+        self.result.push('[' as u8);
+        self
+    }
+
+    pub fn end_if(&mut self) -> &mut Self {
+        self.goto(*self.constants.get(&0).unwrap());
+        self.result.push(']' as u8);
+        self
+    }
+
+    pub fn start_while(&mut self) -> &mut Self {
+        self.result.push('[' as u8);
+        self
+    }
+
+    pub fn end_while(&mut self, pos: usize) -> &mut Self {
+        self.goto(pos).result.push(']' as u8);
+        self
+    }
+
+    pub fn end_while_unchecked(&mut self) -> &mut Self {
+        self.result.push(']' as u8);
+        self
+    }
+
     /*
         I/O
      */
 
-    pub fn print_byte(&mut self) -> &mut Self {
+    pub fn print_ascii(&mut self) -> &mut Self {
         self.result.push('.' as u8);
         self
     }
@@ -182,6 +259,15 @@ impl Builder {
         self
     }
 
+    pub fn print_as_byte(&mut self) -> &mut Self {
+        // http://stackoverflow.com/questions/12569444/printing-a-number-in-brainfuck
+        self.push_str(">>++++++++++<<[->+>-[>+>>]>[+[-<+>]>+>>]<<<<<<]>>[-]>>>++++++++++<[->-[>+>>]>[+[-<+>]>+>>]<<<<<]>[-]>>[>++++++[-<++++++++>]<.<<+>+>[-]]<[<[->-<]++++++[->++++++++<]>.[-]]<<++++++[-<++++++++>]<.[-]<<[-<+>]<");
+
+        // already should go to original cell and leave everything as 0
+
+        self
+    }
+
     pub fn just_print(&mut self, string: &str) -> &mut Self {
         let c = self.n_cells(1);
         self.goto(c.position);
@@ -190,7 +276,7 @@ impl Builder {
             ascii.push(c as i16);
         }
         for (i, ch) in ascii.iter().enumerate().skip(1) {
-            self.adjust(ch - ascii[i - 1]).print_byte();
+            self.adjust(ch - ascii[i - 1]).print_ascii();
         }
         self.free_last_n(1);
         self
