@@ -42,6 +42,13 @@ impl Builder {
         cell
     }
 
+    pub fn new_byte(&mut self, n: u8) -> Cells {
+        let cell = self.model.allocate(1);
+        self.goto(cell.position);
+        self.add(n);
+        cell
+    }
+
     pub fn new_cell(&mut self) -> &mut Self {
         let cell = self.model.allocate(1);
         self.goto(cell.position);
@@ -99,8 +106,9 @@ impl Builder {
         Writing/Clearing
      */
 
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) -> &mut Self {
         self.push_str("[-]");
+        self
     }
 
     pub fn override_one_byte(&mut self, byte: u8) -> &mut Self {
@@ -182,6 +190,83 @@ impl Builder {
             .end_while_unchecked()
     }
 
+    /// Consume current cell and mul to pos
+    pub fn mul_to(&mut self, pos: usize) -> &mut Self {
+        let start = self.cursor;
+        let original = self.n_cells(1);
+        self.copy(pos, original.position);
+        let temp = self.n_cells(1);
+        self
+            .goto(pos)
+            .clear()
+            .goto(start)
+            .start_while()
+            .copy(original.position, temp.position)
+            .goto(temp.position)
+            .add_to(pos)
+            .goto(start)
+            .sub(1)
+            .end_while_unchecked();
+
+        self.goto(temp.position).free_last_n(1);
+        self.goto(original.position).free_last_n(1);
+        self
+    }
+
+    /// Consume current cell and current cell + 1. Current cell becomes quotient.
+    pub fn div_by(&mut self) -> &mut Self {
+        // https://esolangs.org/wiki/Brainfuck_algorithms#Divmod_algorithm
+        // input >n d
+        self.push_str("[->-[>+>>]>[+[-<+>]>+>>]<<<<<]");
+        // output >0 d-n%d n%d n/d
+
+        let p1 = self.cursor;
+        let p2 = self.cursor + 1;
+        let rem = self.cursor + 2;
+        let quo = self.cursor + 3;
+
+        self.goto(quo).add_to(p1);
+        self.goto(p2).clear().goto(rem).clear();
+
+        self.goto(p1)
+    }
+
+    /// Consume current cell and current cell + 1. Current cell becomes remainder.
+    pub fn mod_by(&mut self) -> &mut Self {
+        // https://esolangs.org/wiki/Brainfuck_algorithms#Divmod_algorithm
+        // input >n d
+        self.push_str("[->-[>+>>]>[+[-<+>]>+>>]<<<<<]");
+        // output >0 d-n%d n%d n/d
+
+        let p1 = self.cursor;
+        let p2 = self.cursor + 1;
+        let rem = self.cursor + 2;
+        let quo = self.cursor + 3;
+
+        self.goto(rem).add_to(p1);
+        self.goto(p2).clear().goto(quo).clear();
+
+        self.goto(p1)
+    }
+
+    /// Consume current cell and current cell + 1. Current cell becomes quotient and pos becomes remainder
+    pub fn divmod_by(&mut self) -> &mut Self {
+        // https://esolangs.org/wiki/Brainfuck_algorithms#Divmod_algorithm
+        // input >n d
+        self.push_str("[->-[>+>>]>[+[-<+>]>+>>]<<<<<]");
+        // output >0 d-n%d n%d n/d
+
+        let p1 = self.cursor;
+        let p2 = self.cursor + 1;
+        let rem = self.cursor + 2;
+        let quo = self.cursor + 3;
+
+        self.goto(quo).add_to(p1);
+        self.goto(p2).clear().goto(rem).add_to(p2);
+
+        self.goto(p1)
+    }
+
     /*
         Algorithms
         https://esolangs.org/wiki/Brainfuck_algorithms
@@ -192,22 +277,24 @@ impl Builder {
         self.goto(target).clear();
         self.goto(source);
 
-        self.result.push('[' as u8);
-        self.goto(target);
-        self.result.push('+' as u8);
-        self.goto(temp);
-        self.result.push('+' as u8);
-        self.goto(source);
-        self.result.push('-' as u8);
-        self.result.push(']' as u8);
+        self.start_while()
+            .goto(target)
+            .add(1)
+            .goto(temp)
+            .add(1)
+            .goto(source)
+            .sub(1)
+            .end_while_unchecked();
 
         self.goto(temp);
-        self.result.push('[' as u8);
-        self.goto(source);
-        self.result.push('+' as u8);
+        self.start_while()
+            .goto(source)
+            .add(1)
+            .goto(temp)
+            .sub(1)
+            .end_while_unchecked();
+
         self.goto(temp);
-        self.result.push('-' as u8);
-        self.result.push(']' as u8);
 
         self.free_last_n(1);
 
@@ -220,7 +307,7 @@ impl Builder {
     }
 
     pub fn end_if(&mut self) -> &mut Self {
-        self.goto(*self.constants.get(&0).unwrap());
+        self.clear();
         self.result.push(']' as u8);
         self
     }
@@ -271,6 +358,12 @@ impl Builder {
     pub fn just_print(&mut self, string: &str) -> &mut Self {
         let c = self.n_cells(1);
         self.goto(c.position);
+        self.just_print_here(string);
+        self.free_last_n(1);
+        self
+    }
+
+    pub fn just_print_here(&mut self, string: &str) -> &mut Self {
         let mut ascii = vec![0i16];
         for c in string.chars() {
             ascii.push(c as i16);
@@ -278,7 +371,7 @@ impl Builder {
         for (i, ch) in ascii.iter().enumerate().skip(1) {
             self.adjust(ch - ascii[i - 1]).print_ascii();
         }
-        self.free_last_n(1);
+        self.clear();
         self
     }
 
@@ -291,8 +384,10 @@ impl Builder {
         Finishing
      */
 
-    pub fn finish(&mut self) -> &str {
-        optimize(&mut self.result);
+    pub fn finish(&mut self, do_optimize: bool) -> &str {
+        if do_optimize {
+            optimize(&mut self.result);
+        }
         unsafe {
             std::str::from_utf8_unchecked(&*self.result)
         }
